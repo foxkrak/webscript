@@ -1076,7 +1076,7 @@ async function gerarPDFUnificado(resumoPrateleiras, itensProdutos){
   doc.addPage();
   await gerarPDFProdutos(itensProdutos, doc);
 
-  doc.save("resumo_unificado.pdf");
+  doc.output('dataurlnewwindow');
 }
 </script>
 
