@@ -135,12 +135,8 @@ function finalizarLoader(){ atualizarLoader(100); setTimeout(()=>loader.style.di
    LEITURA ÚNICA DO PDF
 ===================================================== */
 fileInput.addEventListener("change", async function(){
-
   const file=this.files[0];
   if(!file) return;
-
-  // ABRE A ABA IMEDIATAMENTE (evita bloqueio)
-  const abaPDF = window.open("", "_blank");
 
   iniciarLoader();
   const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
@@ -156,14 +152,17 @@ fileInput.addEventListener("change", async function(){
 
   const textoPDF = texto.toUpperCase();
 
+  /* ===== PRATELEIRAS ===== */
   const itensPrat = extrairDadosPrateleiras(textoPDF);
   const resumoPrat = calcularResumoPrateleiras(itensPrat);
 
+  /* ===== PRODUTOS ===== */
   const itensProd = extrairDadosProdutos(textoPDF);
 
-  await gerarPDFUnificado(resumoPrat, itensProd, abaPDF);
-
+  /* ===== PDF FINAL ===== */
+  await gerarPDFUnificado(resumoPrat, itensProd);
 });
+
 /* =====================================================
    ========== CÓDIGO PRATELEIRAS (ORIGINAL)
 ===================================================== */
@@ -1063,20 +1062,20 @@ async function gerarPDFProdutos(itens, doc) {
 /* =====================================================
    PDF FINAL UNIFICADO
 ===================================================== */
-async function gerarPDFUnificado(resumoPrateleiras, itensProdutos, abaPDF){
+async function gerarPDFUnificado(resumoPrateleiras, itensProdutos){
   await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
   await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js");
-	
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:"portrait",unit:"mm",format:[105,148]});
-	
+
   /* ===== PRATELEIRAS PRIMEIRO ===== */
   await gerarPDFPrateleiras(resumoPrateleiras, doc);
-	
+
   /* ===== PRODUTOS DEPOIS ===== */
   doc.addPage();
   await gerarPDFProdutos(itensProdutos, doc);
-	
+
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
   abaPDF.location = url;
