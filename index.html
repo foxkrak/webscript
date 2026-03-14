@@ -1078,7 +1078,7 @@ async function gerarPDFUnificado(resumoPrateleiras, itensProdutos){
 
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
-  abaPDF.location = url;
+  window.open(url);
 }
 </script>
 
