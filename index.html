@@ -219,12 +219,10 @@ function voltarInicio(){
   document.querySelector(".container").style.display = "block";
 
   document.getElementById("pdfFrame").src = "";
+
   /* restaura scroll da página */
   document.body.style.overflow = "auto";
-  if (pdfURL){
-      URL.revokeObjectURL(pdfURL);
-      pdfURL = null;
-  }
+
 }
 
 
@@ -546,7 +544,7 @@ async function gerarPDFPrateleiras(resumo, doc) {
 	doc.addPage();
 
 	doc.setFontSize(11);
-	doc.text("Total a Embalar", 52.5, 8, { align: "center" });
+	doc.text("Total a Embalar", 52.5, 12, { align: "center" });
 
 	const gruposLinhas = [];
 	let totalEmbalar3Andar = 0;
@@ -577,9 +575,9 @@ async function gerarPDFPrateleiras(resumo, doc) {
 		head: [["Modelo", "C/2", "C/1"]],
 		body: gruposLinhas,
 		startY: 14,
-		styles: { fontSize: 8, cellPadding: 1.2, halign: "center" },
+		styles: { fontSize: 12, cellPadding: 1.2, halign: "center" },
 		headStyles: { fillColor: [40, 40, 40], textColor: 255 },
-		margin: { left: 10, right: 10 }
+		margin: { left: 3, right: 3 }
 	});
 
 
@@ -593,9 +591,9 @@ async function gerarPDFPrateleiras(resumo, doc) {
 			["3 ANDAR", pintura.ANDAR_3, totalEmbalar3Andar]
 		],
 		startY: doc.lastAutoTable.finalY + 3,
-		styles: { fontSize: 8, cellPadding: 1.2, halign: "center" },
+		styles: { fontSize: 12, cellPadding: 1.2, halign: "center" },
 		headStyles: { fillColor: [40, 40, 40], textColor: 255 },
-		margin: { left: 10, right: 10 }
+		margin: { left: 3, right: 3 }
 	});
 
     /* =========================
@@ -604,7 +602,7 @@ async function gerarPDFPrateleiras(resumo, doc) {
     doc.addPage();
 
     doc.setFontSize(11);
-    doc.text("Resumo de Pintura", 52.5, 8, { align: "center" });
+    doc.text("Resumo de Pintura", 52.5, 12, { align: "center" });
 
     doc.autoTable({
         head: [["Modelo", "Tábuas"]],
@@ -615,9 +613,9 @@ async function gerarPDFPrateleiras(resumo, doc) {
             ["60cm Envelhecida", pintura.ENVELHECIDA_60]
         ],
         startY: 14,
-        styles: { fontSize: 9, cellPadding: 1.4, halign: "center" },
+        styles: { fontSize: 12, cellPadding: 1.4, halign: "center" },
         headStyles: { fillColor: [40, 40, 40], textColor: 255 },
-        margin: { left: 15, right: 15 }
+        margin: { left: 3, right: 3 }
     });
 
     /* =========================
@@ -637,10 +635,10 @@ async function gerarPDFProdutos(itens, doc) {
   const PAGE_H = 148;
 
   // Margem reduzida e igual em todos os lados
-  const MARGIN = 10;
+  const MARGIN = 3;
 
   /* ===== TÍTULO ===== */
-  doc.setFontSize(10);
+  doc.setFontSize(12);
   doc.text(
     "Resumo de Produtos",
     PAGE_W / 2,
@@ -667,13 +665,13 @@ async function gerarPDFProdutos(itens, doc) {
 
     tableWidth: PAGE_W - MARGIN * 2,
 
-    head: [["Código - SKU", "Quantidade"]], // duas colunas
+    head: [["Código - SKU", "Qtd"]], // duas colunas
     body: linhas,
 
     rowPageBreak: "avoid",
 
     styles: {
-      fontSize: 7.5,
+      fontSize: 12,
       valign: "middle",
       cellPadding: 1.2,
       overflow: "linebreak"
@@ -682,11 +680,11 @@ async function gerarPDFProdutos(itens, doc) {
     headStyles: {
       fillColor: [40, 40, 40],
       textColor: 255,
-      fontSize: 8
+      fontSize: 12
     },
 
     columnStyles: {
-      0: { cellWidth: 60 }, // Código ocupa mais espaço
+      0: { cellWidth: 74 }, // Código ocupa mais espaço
       1: { cellWidth: 25, halign: "center" } // Quantidade centralizada
     }
   });
