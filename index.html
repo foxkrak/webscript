@@ -219,10 +219,12 @@ function voltarInicio(){
   document.querySelector(".container").style.display = "block";
 
   document.getElementById("pdfFrame").src = "";
-
   /* restaura scroll da página */
   document.body.style.overflow = "auto";
-
+  if (pdfURL){
+      URL.revokeObjectURL(pdfURL);
+      pdfURL = null;
+  }
 }
 
 
@@ -714,7 +716,6 @@ async function gerarPDFUnificado(resumoPrateleiras, itensProdutos){
 	mostrarPDF(url);
 
 }
-setTimeout(() => URL.revokeObjectURL(url), 10000);
 </script>
 
 </body>
