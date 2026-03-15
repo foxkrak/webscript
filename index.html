@@ -104,9 +104,41 @@ h2 {
 </head>
 
 <body>
+<div id="viewer" style="display:none;width:100%;height:100vh;">
+  
+  <div style="
+  position:fixed;
+  top:35px;
+  left:10px;
+  z-index:1000;
+  ">
+  
+  <button onclick="voltarInicio()" style="
+  padding:8px 14px;
+  font-size:14px;
+  cursor:pointer;
+  ">
+  ← Voltar
+  </button>
+  
+  </div>
+
+  <iframe id="pdfFrame" 
+  style="
+  width:100%;
+  height:100%;
+  border:none;
+  ">
+  </iframe>
+
+</div>
 
 <div class="container">
-  <h2>📄 Leitura de PDF</h2>
+  <h2>📄 Leitura de PDF - OPT2</h2>
+  <div id="cronometro" style="margin-top:10px;text-align:center;font-size:14px;">
+⏱ Tempo de leitura: <strong id="tempo">0.000s</strong>
+</div></BR>
+
 
   <div class="file-input">
     <input type="file" id="fileInput" accept="application/pdf">
@@ -132,35 +164,170 @@ function atualizarLoader(p){ loaderBar.style.width=p+"%"; loaderPercent.innerTex
 function finalizarLoader(){ atualizarLoader(100); setTimeout(()=>loader.style.display="none",500); }
 
 /* =====================================================
+   CRONÔMETRO DE PERFORMANCE
+===================================================== */
+
+let inicioTempo = 0;
+let timerInterval = null;
+
+function iniciarCronometro(){
+
+    inicioTempo = performance.now();
+
+    timerInterval = setInterval(() => {
+
+        const agora = performance.now();
+        const tempo = ((agora - inicioTempo) / 1000).toFixed(3);
+
+        document.getElementById("tempo").innerText = tempo + "s";
+
+    }, 50);
+
+}
+
+function pararCronometro(){
+
+    clearInterval(timerInterval);
+
+    const fim = performance.now();
+    const tempoTotal = ((fim - inicioTempo) / 1000).toFixed(3);
+
+    document.getElementById("tempo").innerText = tempoTotal + "s";
+}
+
+//------------MOSTRAR PDF--------------------
+
+function mostrarPDF(url){
+
+  document.querySelector(".container").style.display = "none";
+
+  const viewer = document.getElementById("viewer");
+  const frame = document.getElementById("pdfFrame");
+
+  frame.src = url;
+
+  viewer.style.display = "block";
+
+  /* remove scroll da página */
+  document.body.style.overflow = "hidden";
+}
+
+function voltarInicio(){
+
+  document.getElementById("viewer").style.display = "none";
+
+  document.querySelector(".container").style.display = "block";
+
+  document.getElementById("pdfFrame").src = "";
+
+  /* restaura scroll da página */
+  document.body.style.overflow = "auto";
+
+}
+
+
+/* =====================================================
    LEITURA ÚNICA DO PDF
 ===================================================== */
 fileInput.addEventListener("change", async function(){
-  const file=this.files[0];
-  if(!file) return;
 
-  iniciarLoader();
-  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+    const file = this.files[0];
+    if (!file) return;
 
-  let texto="";
-  for(let i=1;i<=pdf.numPages;i++){
-    const page=await pdf.getPage(i);
-    const content=await page.getTextContent();
-    texto+=content.items.map(it=>it.str).join(" ")+"\n";
-    atualizarLoader(Math.round(i/pdf.numPages*100));
-  }
-  finalizarLoader();
+    iniciarLoader();
+	iniciarCronometro();
 
-  const textoPDF = texto.toUpperCase();
+    const pdf = await pdfjsLib.getDocument({
+        data: await file.arrayBuffer()
+    }).promise;
 
-  /* ===== PRATELEIRAS ===== */
-  const itensPrat = extrairDadosPrateleiras(textoPDF);
-  const resumoPrat = calcularResumoPrateleiras(itensPrat);
+    const totalPaginas = pdf.numPages;
 
-  /* ===== PRODUTOS ===== */
-  const itensProd = extrairDadosProdutos(textoPDF);
+    let texto = "";
+    const contador = {};
 
-  /* ===== PDF FINAL ===== */
-  await gerarPDFUnificado(resumoPrat, itensProd);
+    for (let p = 1; p <= totalPaginas; p++) {
+
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+
+        const codigosPagina = [];
+        let quantidadePagina = 0;
+
+        for (const item of content.items) {
+
+            const x = item.transform[4];
+            const y = item.transform[5];
+            const t = item.str.trim();
+
+            if (!t) continue;
+
+            const tLower = t.toLowerCase();
+
+            /* ========= TEXTO PARA PRATELEIRAS ========= */
+
+            texto += t + " ";
+
+            /* ========= CÓDIGOS PRODUTO ========= */
+
+            if (
+                x >= 17.314 && x <= 116 &&
+                y <= 90 && y >= 73.491 &&
+                !tLower.includes("destinat") &&
+                tLower !== "codigo" &&
+                tLower !== "código"
+            ) {
+                codigosPagina.push(t);
+            }
+
+            /* ========= QUANTIDADE ========= */
+
+            if (
+                x >= 370 && x <= 400 &&
+                y <= 99 && y >= 82 &&
+                !isNaN(t)
+            ) {
+                quantidadePagina = parseInt(t);
+            }
+        }
+
+        texto += "\n";
+
+        const codigoCompleto = codigosPagina.join(" ").trim();
+
+        if (codigoCompleto !== "") {
+
+            if (!contador[codigoCompleto]) {
+                contador[codigoCompleto] = 0;
+            }
+
+            contador[codigoCompleto] += quantidadePagina;
+        }
+
+        atualizarLoader(Math.round(p / totalPaginas * 100));
+    }
+
+    /* ========= PRATELEIRAS ========= */
+
+    const textoPDF = texto.toUpperCase();
+
+    const itensPrat = extrairDadosPrateleiras(textoPDF);
+    const resumoPrat = calcularResumoPrateleiras(itensPrat);
+
+    /* ========= PRODUTOS ========= */
+
+    const itensProd = Object.entries(contador).map(
+        ([codigo, quantidade]) => ({
+            codigo,
+            quantidade
+        })
+    );
+	pararCronometro();
+    finalizarLoader();
+
+    /* ========= GERAR PDF ========= */
+
+    await gerarPDFUnificado(resumoPrat, itensProd);
 });
 
 /* =====================================================
@@ -460,540 +627,6 @@ async function gerarPDFPrateleiras(resumo, doc) {
     resumo.__EMBALAR__ = totaisEmbalar;
 }
 
-/* =====================================================
-   ========== CÓDIGO PRODUTOS (ORIGINAL)
-===================================================== */
-function extrairDadosProdutos(texto){
-  return extrairDadosProdutosOriginal(texto);
-}
-
-function extrairDadosProdutosOriginal(texto) {
-  const linhas = texto.split("\n").map(l => l.trim()).filter(Boolean);
-  const mapa = {}; // chave dinâmica
-
-    const codigos = [
-  {
-    "codigo": "1 VASO",
-    "descricao": "BRINQUEDO INTERATIVO VASO SANITÁRIO SANITARIO BRINQUEDO JOGA AGUA DE VERDADE ABRIL FOOL DIA DA NOVIDADE-1 UNIDADE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "10 PEÇAS",
-    "descricao": "FERRAMENTAS BRINQUEDO INFANTIL DIDÁTICO TATETI 10 PEÇAS DIVERTIDO COLORIDO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "120 PREGADOR",
-    "descricao": "KIT COM 120 UNIDADES DE PRENDEDOR PLASTICO PREGADOR DE ROUPAS PLASTICO GIGANTE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "12382747026",
-    "descricao": "BRINQUEDO LOCOMOTIVA TRENZINHO INFANTIL COM PISTA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "172718086942",
-    "descricao": "ATACADO KIT C 10 JOGO DE PANELINHAS INFANTIL DE BRINQUEDOS-KIT 4",
-    "quantidade": 0
-  },
-  {
-    "codigo": "175193913360",
-    "descricao": "JOGO DE ARGOLAS AQUAPLAY MINI GAME DE ÁGUA TRANSPARENTE TOP-ANIMAIS VERMELHOS",
-    "quantidade": 0
-  },
-  {
-    "codigo": "189592350445",
-    "descricao": "KIT 6 PEÇAS CAMBUCA POTE TIGELA PARA SOBREMESA SORVETES AÇAÍ CEREAL CUMBUCA 200ML-PEÇAS 2 ROSA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "189592350447",
-    "descricao": "KIT 6 PEÇAS CAMBUCA POTE TIGELA PARA SOBREMESA SORVETES AÇAÍ CEREAL CUMBUCA 200ML-KIT 6 PEÇAS",
-    "quantidade": 0
-  },
-  {
-    "codigo": "20697807698",
-    "descricao": "BRINQUEDO EDUCATIVO MONTA CASTELO GRANDE BEBE TA TE TI 12 PEÇAS",
-    "quantidade": 0
-  },
-  {
-    "codigo": "22892654693",
-    "descricao": "KIT JOGO VARETAS JOGO PEGA VARETAS COM 21 VARETAS DE PLASTICO BRINQUEDO INFANTIL MENINO KIDS CRIANÇAS",
-    "quantidade": 0
-  },
-  {
-    "codigo": "230783535736",
-    "descricao": "CAMINHÃO DE BRINQUEDO GRANDE MILITAR CONTRUÇÃO BOMBEIRO GRANDE COM LUZ E SOM-CONSTRUÇÃO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ACITIVITY",
-    "descricao": "CASINHA DE ATIVIDADES EDUCATIVO ACTIVITY HOUSE HOUSE CALESITA 714-MENINO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ACTIVITY",
-    "descricao": "BRINQUEDO CASINHA INFANTIL DIDÁTICO HOUSE ACTIVITY HOUSE TATETI DIDÁTICO MONTES- SORI-MENINO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ACTIVITY HOUSE ROSA",
-    "descricao": "BRINQUEDO CASINHA INFANTIL DIDÁTICO HOUSE ROSA ACTIVITY HOUSE TATETI DIDÁTICO MONTES- SORI-MENINA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ALMOFADA",
-    "descricao": "ALMOFADA IDEAL P TUMMY TIME C ACESSÓRI- INFANTIL OS ZOOP TOYS",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ALVO GRANDE",
-    "descricao": "JOGO DE DARDOS PROFISSIONAL 36CM KIT DARDOS TIRO AO ALVO GRANDE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ARCO E FLECHA",
-    "descricao": "BRINQUEDOS ARCO E FLECHAS INFANTIL PORTA FLECHAS CRIANÇA MENINO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ASSENTO AZUL",
-    "descricao": "ASSENTO REDUTOR VASO SANITÁRIO INFANTIL MACIO ESTAMPADO TRONINHO-AZUL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ASSENTO ROSA",
-    "descricao": "ASSENTO REDUTOR VASO SANITÁRIO INFANTIL MACIO ESTAMPADO TRONINHO-ROSA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "BLOCO 280",
-    "descricao": "BLOCOS DE MONTAR 280 PEÇAS COM CAMINHÃ MATRIX OZINHO REIBLOCKS CRIANÇA MENINO MENINA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "BLOCO 56 PÇS",
-    "descricao": "BLOCOS DE MONTAR COM 56 PEÇAS MAIS MALETA COM RODINHAS BRINQUEDO EDUC-ATIVO MONTAR FÁCIL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "BLOCO BEBE",
-    "descricao": "KIT 91 BLOCOS DE MONTAR BLOQUINHOS BABY BEBE PEÇAS MAIORES ENCAIXAR JUNTAR APRENDER DESENVOLVER COORDENAÇÃO MOTORA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "BLOCOS 140",
-    "descricao": "140 BLOCOS DE MONTAR SUPER COLORIDOS MATRIX CARRINHO RODINHAS EDUCACIONAL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "BOLA FUTBOL",
-    "descricao": "BOLA DE FUTEVÔLEI ALTINHA FUTVOLEY ALTA ALEATÓRIA OFICIAL MACIA PRO BALLS ORIGINAL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "BURRO ELEFANTE",
-    "descricao": "BRINQUEDO FAZENDINHA ANIMAIS DA FAZENDA 3 UNIDADES VINIL MACIO CRIANÇA BANHO BURRO ELEFANTE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "C15 CARRINHOS",
-    "descricao": "KIT COM 30 CARRINHOS COLORIDOS COLEÇÃO CARROS DE BRINQUEDO TIPO HOT WHEELS STYLE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CADEIRA AZUL",
-    "descricao": "CADEIRA INFANTIL DE METAL COM BUZINA CRIANÇA AZUL ROSA PEIDA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CAIU C1",
-    "descricao": "KIT 3 JOGO CAIU PERDEU 54 PEÇAS TORRE MALUCA DE EQUILÍBRIO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CAIU C2",
-    "descricao": "KIT 3 JOGO CAIU PERDEU 54 PEÇAS TORRE MALUCA DE EQUILÍBRIO - VARIANTE 2",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CAIU C3",
-    "descricao": "KIT 3 JOGO CAIU PERDEU DE MADEIRA 54 PEÇAS TORRE MALUCA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CAIU LUDO",
-    "descricao": "JOGO CAIU PERDEU LUDO TORRE MALUCA DE EQUILÍBRIO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CAIU VARETA",
-    "descricao": "JOGO CAIU PERDEU PEGA VARETA TORRE MALUCA DE EQUILÍBRIO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CAMINHAO",
-    "descricao": "BRINQUEDO CAMINHÃO GUINCHO COM GUINCHO CAMIONETE DIVERPLAS",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CAMINHAO DE",
-    "descricao": "CAMINHÃO DE LIXEIRO CAMINHÃO DE LIXO BRINQUEDO GRANDE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CARRINHO BONECA",
-    "descricao": "CARRINHO DE BONECA BRINQUEDOS BEBÊ BONECA MENINA INFANTIL LUXO PASSEIO REBORN",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CARRINHO C15",
-    "descricao": "KIT COM 15 CARRINHOS COLORIDOS COLEÇÃO CARROS DE BRINQUEDO DIECAST",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CARRINHO C5",
-    "descricao": "KIT COM 5 CARRINHOS COLORIDOS COLEÇÃO CARROS DE BRINQUEDO DIECAST",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CARRO C FIO",
-    "descricao": "CARRINHO DE CONTROLE REMOTO A PILHA 360 MALUCO POLICIAL TUBARÃO JEEP",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CHUVEIRO",
-    "descricao": "CHUVEIRO INFANTIL BRINQUEDO DE BANHO ELEFANTE ÁGUA GOLFINHO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "COM FIO",
-    "descricao": "CARRINHO DA POLÍCIA CONTROLE REMOTO COM FIO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CONSTRUTOR",
-    "descricao": "KIT 6 CARRINHOS CONSTRUÇÃO OBRA CAMINHÃO TRATOR GUINDASTE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CONTROLE VIDEO GAME BB",
-    "descricao": "BRINQUEDO CONTROLE DE VIDEO GAME BEBÊ EDUCATIVO COM SOM DIDÁTICO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "COPO MENINA",
-    "descricao": "COPO MAMADEIRA INFANTIL 200ML COM CANUDO APRENDIZAGEM MENINA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CUBO",
-    "descricao": "DESAFIO CUBO COM ELÁSTICO EDUCATIVO MONTESSORI SENSORIAL INFANTIL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "CUBO 120",
-    "descricao": "120 BLOCOS DE MONTAR SUPER COLORIDOS MONTAR CUBOS EDUCACIONAL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "DINO BOLHAS",
-    "descricao": "LANÇA BOLHAS SABÃO DINOSSAURO CAMERA BAZUCA BRINQUEDO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "DINO DE",
-    "descricao": "DINOSSAURO DINO PAINTER PARA COLORIR PINTAR COM GUACHE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "DISPENSER C1",
-    "descricao": "DISPENSER AUTOMÁTICO DE SABÃO/DETERGENTE PAREDE KIT 1 UNIDADE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "DISPENSER C2",
-    "descricao": "DISPENSER AUTOMÁTICO DE SABÃO/DETERGENTE PAREDE KIT 2 UNIDADES",
-    "quantidade": 0
-  },
-  {
-    "codigo": "EMBARCADINHO",
-    "descricao": "BRINQUEDO BARCO PIRATA NAVIO INFANTIL AVENTURA EMBARCADINHO COLORIDO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "FERRAMENTA MATRIX",
-    "descricao": "KIT FERRAMENTAS PARAFUSADEIRA FURADEIRA INFANTIL BRINQUEDO MENINO PRESENTE MARTELO ALICATE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "FOGUETE APOLLO",
-    "descricao": "BRINQUEDO FOGUETE APOLLO INFANTIL QUE VOA DE VERDADE DRONE CRIANÇA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "FURADEIRA MARTELO",
-    "descricao": "KIT FERRAMENTAS PARAFUSADEIRA FURADEIRA INFANTIL BRINQUEDO MENINO PRESENTE FURADEIRA MARTELO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "GIRAFA",
-    "descricao": "KIT 3 ANIMAIS DA FAZENDA E SAFARI BRINQUEDO MACIO PARA BEBÊ BANHO MORDEDOR GIRAFA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "GRELHA 40X50",
-    "descricao": "GRELHA PARA CHURRASQUEIRA 50X40 / 40X50 MOEDA PRÉ-MOLDADA MONTADA CHAPA GROSSA EM AÇO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "GRELHA 50X40",
-    "descricao": "GRELHA PARA CHURRASQUEIRA 50X40 / 40X50 MOEDA PRÉ-MOLDADA MONTADA CHAPA GROSSA EM AÇO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "JACARE DEDO",
-    "descricao": "TUBARÃO DENTE FECHA BOCA MORDE DEDO DENTISTA SHARK ATTACK BRINQUEDO CROCODILO JACARÉ SENSORIAL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "JACARE MORDE",
-    "descricao": "JOGO CROCODILO MORDE DEDO DENTISTA APERTA DENTE DESAFIO CRIANÇA JACARÉ",
-    "quantidade": 0
-  },
-  {
-    "codigo": "JEEP AZUL",
-    "descricao": "CARRINHO DE CONTROLE REMOTO ESPORTIVO COMPETIÇÃO JEEP AZUL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "JEEP VERDE",
-    "descricao": "CARRINHO DE CONTROLE REMOTO ESPORTIVO COMPETIÇÃO JEEP VERDE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "JEEP VERMELHO",
-    "descricao": "CARRINHO DE CONTROLE REMOTO ESPORTIVO COMPETIÇÃO JEEP VERMELHO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT 2 VASO",
-    "descricao": "BRINQUEDO INTERATIVO VASO SANITÁRIO JOGA ÁGUA DE VERDADE ABRIL FOOL 2 UNIDADES",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT 3 ANIMAIS",
-    "descricao": "KIT 3 ANIMAIS DA FAZENDA BURRINHO PORQUINHO LEÃO BRINQUEDO MACIO PARA BEBÊ BANHO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT 3 SAFARI",
-    "descricao": "KIT 3 ANIMAIS DA FAZENDA E SAFARI BRINQUEDO MACIO PARA BEBÊ BANHO MORDEDOR",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT Basqueti",
-    "descricao": "KIT DE BASQUETE INFANTIL BOLA REDE CESTA E SUPORTE PARA PAREDE BASKETBALL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT FARM",
-    "descricao": "BRINQUEDO FAZENDINHA ANIMAIS DA FAZENDA 3 UNIDADES VINIL MACIO CRIANÇA BANHO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT MOLA",
-    "descricao": "KIT MOLA MALUCA PULAR CORDA AQUA PLAY MALUCA EM PROMOÇÃO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT PRAIA",
-    "descricao": "KIT 12 PEÇAS PRAIA CONJUNTO DE BRINQUEDOS DE PRAIA CRIANÇAS CAIXA DE AREIA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT Skate De Dedo",
-    "descricao": "SKATE DE DEDO MINI TECH DECK KIT COM 12 PEÇAS BRINQUEDOS DE MENINO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "KIT XERIFE 7",
-    "descricao": "KIT POLICIAL INFANTIL XERIFE KIT 7 PEÇAS PISTOLA LANÇA DARDOS",
-    "quantidade": 0
-  },
-  {
-    "codigo": "LAMBO AZUL",
-    "descricao": "CARRINHO DE CONTROLE REMOTO ESPORTIVO COMPETIÇÃO LAMBORGHINI AZUL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "LAMBO VERDE",
-    "descricao": "CARRINHO DE CONTROLE REMOTO ESPORTIVO COMPETIÇÃO LAMBORGHINI VERDE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "LAMBO VERMELHO",
-    "descricao": "CARRINHO DE CONTROLE REMOTO ESPORTIVO COMPETIÇÃO LAMBORGHINI VERMELHO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "LOCOMOTIVA",
-    "descricao": "TRENZINHO DE BRINQUEDO LOCOMOTIVA INFANTIL TREM ELÉTRICO INFANTIL CRIANÇAS",
-    "quantidade": 0
-  },
-  {
-    "codigo": "LOIRO LISO",
-    "descricao": "CABELO APLIQUE TIC TAC IDENTICO HUMANO TOP MEGA HAIR LISO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "LUA LUMINARIA",
-    "descricao": "LUMINÁRIA LUA CHEIA 3D ABAJUR LED DECORAÇÃO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "MESA CAFÉ DA MANHÃ",
-    "descricao": "BANDEJA MESA PARA CAFÉ DA MANHÃ NA CAMA DOBRÁVEL DE MADEIRA ROMÂNTICA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "METAL C5",
-    "descricao": "KIT 5 CARRINHOS FERRO COLEÇÃO ESTILO RELÂMPAGO BRINQUEDOS RACING CARRO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "METAL C6",
-    "descricao": "KIT 6 CARRINHOS RODA LIVRE CARROS DE METAL 6 CARROS DE BRINQUEDO DE FERRO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "MONSTER",
-    "descricao": "CARRINHOS ESTILO HOT WHEELS MINI MONSTER CLANÇADOR DE FERRO METAL COM LANÇADOR NASCAR RANCING 4X4 CAMIONETE COM RAMPA SALTO VOA RÁPIDO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "ONDULADO",
-    "descricao": "EXTENSÃO DE CABELO EM FIBRA ORGÂNICA WENG ONDULADO COM APLIQUE TIC TAC PARA VOLUME MEGA HAIR",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PAREDE",
-    "descricao": "MICTÓRIO SAPINHO INFANTIL DE PAREDE TRONINHO PENICO MENINO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PISCINA AZUL",
-    "descricao": "PISCINA DE BOLINHAS COM CESTA DE BASQUETE MENINO AZUL OCEANO PATRULHA CANINA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PISCINA ROSA",
-    "descricao": "PISCINA DE BOLINHAS COM CESTA DE BASQUETE ROSA PRINCESAS CASTELO INFANTIL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PISTA LOOPING",
-    "descricao": "SUPER PISTA LOOPING 360 LANÇADOR DE CARRINHOS TIPO HOT WHEELS COM LOOP E SALTO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "POLICIA SFIO",
-    "descricao": "CARRINHO POLÍCIA CONTROLE REMOTO SEM FIO RECARREGÁVEL COM LUZES E SOM SIRENE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "POWER RANGERS",
-    "descricao": "KIT 5 BONECOS POWER RANGERS ARTICULADOS BRINQUEDO INFANTIL MENINO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PREGADOR C120",
-    "descricao": "KIT 120 PREGADORES DE ROUPA MADEIRA GIGANTE PRENDEDOR",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PREGADOR C300",
-    "descricao": "KIT 300 PREGADORES DE ROUPA MADEIRA GIGANTE PRENDEDOR",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PREGADOR C360",
-    "descricao": "KIT 360 PREGADORES DE ROUPA MADEIRA GIGANTE PRENDEDOR",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PROCESSADOR C1",
-    "descricao": "KIT PROCESSADOR MANUAL DE ALIMENTOS 500ML COM 3 LÂMINAS - 1 UNIDADE",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PROCESSADOR C3",
-    "descricao": "KIT PROCESSADOR MANUAL DE ALIMENTOS 500ML COM 3 LÂMINAS - 3 UNIDADES",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PROJETOR BALEIA",
-    "descricao": "LANTERNA PROJETOR DE IMAGENS INFANTIL BALEIA",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PROJETOR DINO",
-    "descricao": "LANTERNA PROJETOR DE IMAGENS INFANTIL DINOSSAURO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "PROJETOR KIT 2",
-    "descricao": "KIT 2 LANTERNAS PROJETORAS DE IMAGENS INFANTIL",
-    "quantidade": 0
-  },
-  {
-    "codigo": "REPARO DE PISCINA",
-    "descricao": "KIT 6 ADESIVOS DE REPARO PARA PISCINA INFLÁVEL BOIAS COLCHÃO",
-    "quantidade": 0
-  },
-  {
-    "codigo": "SAPINHO",
-    "descricao": "MICTÓRIO SAPINHO INFANTIL TRONINHO PENICO MENINO DESFRALDE COM ALVO GIRATÓRIO",
-    "quantidade": 0
-  }
-
-];
-
-  for (const linha of linhas) {
-    for (const item of codigos) {
-
-      const codigoEscapado = item.codigo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const regex = new RegExp(`\\b${codigoEscapado}\\b`, "i");
-      if (!regex.test(linha)) continue;
-
-      // Quantidade no final da linha
-      let qtdPedido = 1;
-      const m = linha.match(/(\d+)\s*$/);
-      if (m) qtdPedido = parseInt(m[1], 10);
-
-      // Código visual
-      const codigoFinal =
-        qtdPedido > 1
-          ? `${item.codigo} Q|${qtdPedido}`
-          : item.codigo;
-
-      if (!mapa[codigoFinal]) {
-        mapa[codigoFinal] = {
-          codigo: codigoFinal,
-          descricao: item.descricao,
-          quantidade: 0
-        };
-      }
-
-      // Soma PEDIDOS
-      mapa[codigoFinal].quantidade += 1;
-    }
-  }
-
-  return Object.values(mapa);
-}
-
 /* ================= GERAR PDF ================= */
 async function gerarPDFProdutos(itens, doc) {
 
@@ -1002,21 +635,21 @@ async function gerarPDFProdutos(itens, doc) {
   const PAGE_H = 148;
 
   // Margem reduzida e igual em todos os lados
-  const MARGIN = 5;
+  const MARGIN = 10;
 
   /* ===== TÍTULO ===== */
   doc.setFontSize(10);
   doc.text(
-    "Resumo do PDF",
+    "Resumo de Produtos",
     PAGE_W / 2,
     MARGIN + 3,
     { align: "center" }
   );
 
+  // Transformando itens em linhas: apenas código e quantidade
   const linhas = itens.map(i => [
-    i.codigo,
-    i.descricao,
-    i.quantidade
+    i.codigo,       // Código
+    i.quantidade    // Quantidade
   ]);
 
   /* ===== TABELA ===== */
@@ -1032,7 +665,7 @@ async function gerarPDFProdutos(itens, doc) {
 
     tableWidth: PAGE_W - MARGIN * 2,
 
-    head: [["Código", "Descrição", "Qtd"]],
+    head: [["Código - SKU", "Quantidade"]], // duas colunas
     body: linhas,
 
     rowPageBreak: "avoid",
@@ -1051,9 +684,8 @@ async function gerarPDFProdutos(itens, doc) {
     },
 
     columnStyles: {
-      0: { cellWidth: 25 },
-      1: { cellWidth: "auto" },
-      2: { cellWidth: 10, halign: "center" }
+      0: { cellWidth: 60 }, // Código ocupa mais espaço
+      1: { cellWidth: 25, halign: "center" } // Quantidade centralizada
     }
   });
 
@@ -1076,9 +708,11 @@ async function gerarPDFUnificado(resumoPrateleiras, itensProdutos){
   doc.addPage();
   await gerarPDFProdutos(itensProdutos, doc);
 
-  const blob = doc.output("blob");
-  const url = URL.createObjectURL(blob);
-  window.open(url);
+	const blob = doc.output("blob");
+	const url = URL.createObjectURL(blob);
+
+	mostrarPDF(url);
+
 }
 </script>
 
