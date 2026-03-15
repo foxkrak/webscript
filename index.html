@@ -714,6 +714,7 @@ async function gerarPDFUnificado(resumoPrateleiras, itensProdutos){
 	mostrarPDF(url);
 
 }
+setTimeout(() => URL.revokeObjectURL(url), 10000);
 </script>
 
 </body>
