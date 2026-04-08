@@ -344,41 +344,56 @@ function calcularResumoPrateleiras(itens){
    EXTRAÇÃO
 ========================= */
 function extrairDados(texto) {
-    const linhas = texto.split("\n").map(l => l.trim()).filter(Boolean);
-
     const codigos = [
         "NATURAL C1","NATURAL C2","NATURAL C4","NATURAL C6",
         "ENVELHECIDA C1","ENVELHECIDA C2","ENVELHECIDA C4","ENVELHECIDA C6",
         "PRETA C1","PRETA C2","PRETA C4","PRETA C6",
         "60CM NAT C1","60CM NAT C2","60CM NAT C4","60CM NAT C6",
-        "60CM ENV C1","60CM ENV C2","60CM ENV C4","60CM ENV C6","60CM PRE C1","60CM PRE C2",
-		"60CM PRE C4","60CM PRE C6","3 ANDAR"
+        "60CM ENV C1","60CM ENV C2","60CM ENV C4","60CM ENV C6",
+        "60CM PRE C1","60CM PRE C2","60CM PRE C4","60CM PRE C6",
+        "3 ANDAR"
     ];
 
+    const escapeRegex = str => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const regexCodigos = codigos
+        .sort((a, b) => b.length - a.length)
+        .map(escapeRegex)
+        .join("|");
+
+	const regex = new RegExp(
+		`(${regexCodigos})([\\s\\S]*?)(?=${regexCodigos}|\\n|$)`,
+		"g"
+	);
+
+    const linhaNormalizada = texto.replace(/\//g, "");
     const itens = [];
 
-    for (const linha of linhas) {
-		const linhaNormalizada = linha.replace(/\//g, "");
-        const codigo = codigos.find(c => linhaNormalizada.includes(c));
-		let codigoC = 0;
-        if (!codigo) continue;
+    let match;
 
-        const tamanho = codigo === "3 ANDAR" ? 30 : codigo.includes("60") ? 60 : 40;
+    while ((match = regex.exec(linhaNormalizada)) !== null) {
+        const cod = match[1];
+        const trecho = match[0];
+
+        const tamanho = cod === "3 ANDAR" ? 30 : cod.includes("60") ? 60 : 40;
+
         let cor = "NATURAL";
-        if (codigo.includes("PRETA") || codigo.includes("PRE")) cor = "PRETA";
-        if (codigo.includes("ENV")) cor = "ENVELHECIDA";
-		if (codigo != "3 ANDAR"){
-			codigoC = parseInt(codigo.match(/C\/?([1246])/)[1]);
-		}else{
-			codigoC = 0;
-		}
+        if (cod.includes("PRETA") || cod.includes("PRE")) cor = "PRETA";
+        if (cod.includes("ENV")) cor = "ENVELHECIDA";
 
+        let codigoC = 0;
+        if (cod !== "3 ANDAR") {
+            codigoC = parseInt(cod.match(/C\/?([1246])/)[1]);
+        }
+		
         let quantidade = 1;
-        const q = linha.match(/(\d+)\s*$/);
+        const q = trecho.match(/,\d+\s*(\d+)/);
         if (q) quantidade = parseInt(q[1]);
+		console.log({ cod, trecho, quantidade });
 
         itens.push({ tamanho, cor, codigoC, quantidade, etiqueta: 1 });
     }
+	console.log(itens)
     return itens;
 }
 
