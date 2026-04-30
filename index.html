@@ -362,8 +362,8 @@ function extrairDados(texto) {
         .join("|");
 
 	const regex = new RegExp(
-		`(${regexCodigos})([\\s\\S]*?)(?=${regexCodigos}|\\n|$)`,
-		"g"
+    `(?:^|\\s)(${regexCodigos})(?=\\s|$)([\\s\\S]*?)(?=(?:^|\\s)(?:${regexCodigos})(?=\\s|$)|\\n|$)`,
+    "g"
 	);
 
     const linhaNormalizada = texto.replace(/\//g, "");
@@ -374,8 +374,9 @@ function extrairDados(texto) {
     while ((match = regex.exec(linhaNormalizada)) !== null) {
         const cod = match[1];
         const trecho = match[0];
-
+		//console.log(match)
         const tamanho = cod === "3 ANDAR" ? 30 : cod.includes("60") ? 60 : 40;
+		const codigo = cod;
 
         let cor = "NATURAL";
         if (cod.includes("PRETA") || cod.includes("PRE")) cor = "PRETA";
@@ -387,13 +388,14 @@ function extrairDados(texto) {
         }
 		
         let quantidade = 1;
-        const q = trecho.match(/,\d+\s*(\d+)/);
+        const q = trecho.match(/(?:^|\s)(\d+)\s*$/);
+		console.log(q)
         if (q) quantidade = parseInt(q[1]);
 		console.log({ cod, trecho, quantidade });
 
-        itens.push({ tamanho, cor, codigoC, quantidade, etiqueta: 1 });
+        itens.push({ codigo, tamanho, cor, codigoC, quantidade, etiqueta: 1 });
     }
-	console.log(itens)
+	//console.log(itens)
     return itens;
 }
 
@@ -421,6 +423,7 @@ function calcularResumo(itens) {
         const k = `${i.tamanho}_${i.cor}_C${i.codigoC}`;
         if (!resumo[k]) {
             resumo[k] = {
+				codigo: i.codigo,
                 tamanho: i.tamanho,
                 cor: i.cor,
                 codigoC: i.codigoC,
@@ -512,7 +515,7 @@ async function gerarPDFPrateleiras(resumo, doc) {
     for (const k in resumo) {
         const r = resumo[k];
         linhas.push([
-            r.codigoC === 0 ? "3 ANDAR" : `${r.tamanho} ${r.cor} C${r.codigoC}`,
+            r.codigo,
             r.quantidadeVendida,
             r.prateleiras,
             r.kitsBase,
@@ -525,91 +528,129 @@ async function gerarPDFPrateleiras(resumo, doc) {
         head: [["Modelo", "Vend.", "Prat.", "C/2", "Mad.", "Mãos"]],
         body: linhas,
         startY: 15,
+
         styles: {
-            fontSize: 6,
+            fontSize: 7,
             cellPadding: 0.8,
-            halign: "center",
-            valign: "middle"
+            valign: "middle",
+            halign: "left" // padrão esquerda
         },
+
+        columnStyles: {
+            0: { halign: "left" },   // Modelo esquerda
+            1: { halign: "center" },
+            2: { halign: "center" },
+            3: { halign: "center" },
+            4: { halign: "center" },
+            5: { halign: "center" }
+        },
+
         headStyles: {
             fillColor: [40, 40, 40],
-            textColor: 255
+            textColor: 255,
+            halign: "center"
         },
-        margin: { left: 3, right: 3 }
+
+        margin: { left: 3, right: 3 },
+
+        didParseCell: function (data) {
+			if (data.section === 'body' && data.column.index === 0) {
+			data.cell.styles.halign = 'left';
+			}
+		}
     });
 
     doc.autoTable({
         head: [["Métricas", "Total"]],
         body: [
-            ["Tábuas 40cm", pintura.PRETA_40 + pintura.ENVELHECIDA_40 + pintura.NATURAL_40],
-            ["Tábuas 60cm", pintura.ENVELHECIDA_60 + pintura.NATURAL_60 + pintura.PRETA_60],
-            ["Tábuas 3 Andar", pintura.ANDAR_3],
-            ["Total de Tábuas", totalMadeiras],
-            ["Total Mãos Francesas", totalMaos]
+            ["TÁBOAS 40CM", pintura.PRETA_40 + pintura.ENVELHECIDA_40 + pintura.NATURAL_40],
+            ["TÁBOAS 60CM", pintura.ENVELHECIDA_60 + pintura.NATURAL_60 + pintura.PRETA_60],
+            ["TÁBOAS 3 ANDAR", pintura.ANDAR_3],
+            ["TOTAL DE TÁBOAS", totalMadeiras],
+            ["TOTAL MÃOS FRANCESAS", totalMaos]
         ],
         startY: doc.lastAutoTable.finalY + 2,
-        styles: { fontSize: 7, cellPadding: 1, halign: "center" },
-        headStyles: { fillColor: [60, 60, 60], textColor: 255 },
-        margin: { left: 10, right: 10 }
+
+        styles: { fontSize: 7, cellPadding: 1, halign: "left" },
+
+        columnStyles: {
+            0: { halign: "left" },
+            1: { halign: "center" }
+        },
+
+        headStyles: { fillColor: [60, 60, 60], textColor: 255, halign: "center" },
+
+        margin: { left: 3, right: 3 }
     });
 
     /* =========================
        PÁGINA 2 – EMBALAR
     ========================== */
-	doc.addPage();
+    doc.addPage();
 
-	doc.setFontSize(11);
-	doc.text("Total a Embalar", 52.5, 12, { align: "center" });
+    doc.setFontSize(11);
+    doc.text("Total a Embalar", 52.5, 12, { align: "center" });
 
-	const gruposLinhas = [];
-	let totalEmbalar3Andar = 0;
+    const gruposLinhas = [];
+    let totalEmbalar3Andar = 0;
 
-	Object.keys(totaisEmbalar).forEach(key => {
+    Object.keys(totaisEmbalar).forEach(key => {
 
-		const item = totaisEmbalar[key];
-		const [tamanho, cor] = key.split("_");
+        const item = totaisEmbalar[key];
+        const [tamanho, cor] = key.split("_");
 
-		if (item.codigoC === 0) {
+        if (item.codigoC === 0) {
+            totalEmbalar3Andar += item.C1; // 🔥 corrigido (antes sobrescrevia)
+        } else {
+            gruposLinhas.push([
+                `${tamanho} ${cor}`,
+                item.total,
+                item.C1
+            ]);
+        }
+    });
 
-			// acumula todos os 3 ANDAR
-			totalEmbalar3Andar = item.C1;
+    doc.autoTable({
+        head: [["Modelo", "C/2", "C/1"]],
+        body: gruposLinhas,
+        startY: 14,
 
-		} else {
+        styles: { fontSize: 12, cellPadding: 1.2, halign: "left" },
 
-			gruposLinhas.push([
-				`${tamanho} ${cor}`,
-				item.total,
-				item.C1
-			]);
+        columnStyles: {
+            0: { halign: "left" },
+            1: { halign: "center" },
+            2: { halign: "center" }
+        },
 
-		}
+        headStyles: { fillColor: [40, 40, 40], textColor: 255, halign: "center" },
 
-	});
+        margin: { left: 3, right: 3 }
+    });
 
-	doc.autoTable({
-		head: [["Modelo", "C/2", "C/1"]],
-		body: gruposLinhas,
-		startY: 14,
-		styles: { fontSize: 12, cellPadding: 1.2, halign: "center" },
-		headStyles: { fillColor: [40, 40, 40], textColor: 255 },
-		margin: { left: 3, right: 3 }
-	});
+    /* =========================
+       MODELO FURAR
+    ========================== */
 
+    doc.autoTable({
+        head: [["Modelo", "Furar", "Embalar"]],
+        body: [
+            ["3 ANDAR", pintura.ANDAR_3, totalEmbalar3Andar]
+        ],
+        startY: doc.lastAutoTable.finalY + 3,
 
-	/* =========================
-	   MODELO FURAR
-	========================= */
+        styles: { fontSize: 12, cellPadding: 1.2, halign: "left" },
 
-	doc.autoTable({
-		head: [["Modelo", "Furar", "Embalar"]],
-		body: [
-			["3 ANDAR", pintura.ANDAR_3, totalEmbalar3Andar]
-		],
-		startY: doc.lastAutoTable.finalY + 3,
-		styles: { fontSize: 12, cellPadding: 1.2, halign: "center" },
-		headStyles: { fillColor: [40, 40, 40], textColor: 255 },
-		margin: { left: 3, right: 3 }
-	});
+        columnStyles: {
+            0: { halign: "left" },
+            1: { halign: "center" },
+            2: { halign: "center" }
+        },
+
+        headStyles: { fillColor: [40, 40, 40], textColor: 255, halign: "center" },
+
+        margin: { left: 3, right: 3 }
+    });
 
     /* =========================
        PÁGINA 3 – PINTURA
@@ -622,14 +663,22 @@ async function gerarPDFPrateleiras(resumo, doc) {
     doc.autoTable({
         head: [["Modelo", "Tábuas"]],
         body: [
-            ["40cm Preta", pintura.PRETA_40],
-			["60cm Preta", pintura.PRETA_60],
-            ["40cm Envelhecida", pintura.ENVELHECIDA_40],
-            ["60cm Envelhecida", pintura.ENVELHECIDA_60]
+            ["40 PRETA", pintura.PRETA_40],
+            ["60 PRETA", pintura.PRETA_60],
+            ["40 ENVELHECIDA", pintura.ENVELHECIDA_40],
+            ["60 ENVELHECIDA", pintura.ENVELHECIDA_60]
         ],
         startY: 14,
-        styles: { fontSize: 12, cellPadding: 1.4, halign: "center" },
-        headStyles: { fillColor: [40, 40, 40], textColor: 255 },
+
+        styles: { fontSize: 12, cellPadding: 1.4, halign: "left" },
+
+        columnStyles: {
+            0: { halign: "left" },
+            1: { halign: "center" }
+        },
+
+        headStyles: { fillColor: [40, 40, 40], textColor: 255, halign: "center" },
+
         margin: { left: 3, right: 3 }
     });
 
