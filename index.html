@@ -230,12 +230,11 @@ function voltarInicio(){
    LEITURA ÚNICA DO PDF
 ===================================================== */
 fileInput.addEventListener("change", async function(){
-
     const file = this.files[0];
     if (!file) return;
 
     iniciarLoader();
-	iniciarCronometro();
+    iniciarCronometro();
 
     const pdf = await pdfjsLib.getDocument({
         data: await file.arrayBuffer()
@@ -245,88 +244,69 @@ fileInput.addEventListener("change", async function(){
 
     let texto = "";
     const contador = {};
+    const ignorar = ["CÓDIGO", "CODIGO", "CÓD.", "COD.", "PRODUTO", "PÁGINA", "PAGINA"];
+    let codigoAtual = ""; // Variável para acumular o código entre linhas
 
     for (let p = 1; p <= totalPaginas; p++) {
-
         const page = await pdf.getPage(p);
         const content = await page.getTextContent();
 
-        const codigosPagina = [];
-        let quantidadePagina = 0;
-
         for (const item of content.items) {
-
             const x = item.transform[4];
             const y = item.transform[5];
             const t = item.str.trim();
 
             if (!t) continue;
-
             const tLower = t.toLowerCase();
 
-            /* ========= TEXTO PARA PRATELEIRAS ========= */
-
+            /* ========= TEXTO PARA PRATELEIRAS (MANTIDO) ========= */
             texto += t + " ";
 
-            /* ========= CÓDIGOS PRODUTO ========= */
-
-            if (
-                x >= 17.314 && x <= 116 &&
-                y <= 90 && y >= 73.491 &&
-                !tLower.includes("destinat") &&
-                tLower !== "codigo" &&
-                tLower !== "código"
-            ) {
-                codigosPagina.push(t);
+            /* ========= NOVA LÓGICA DE BUSCA DE PRODUTOS ========= */
+            
+            // 1. Acumula o código se estiver na coluna correta (17.31)
+            if (x >= 17.31 && x <= 25) {
+                const tUp = t.toUpperCase();
+                const ehCabecalho = ignorar.some(p => tUp.includes(p));
+                
+                if (!ehCabecalho && t.length < 30) {
+                    codigoAtual += (codigoAtual ? " " : "") + t;
+                }
             }
 
-            /* ========= QUANTIDADE ========= */
-
-            if (
-                x >= 370 && x <= 400 &&
-                y <= 99 && y >= 80 &&
-                !isNaN(t)
-            ) {
-                quantidadePagina = parseInt(t);
+            // 2. Âncora de Quantidade (370 a 400) fecha o bloco
+            if (x >= 370 && x <= 400 && !isNaN(t) && t !== "") {
+                const qtd = parseInt(t);
+                
+                // Salva no contador se tivermos um código acumulado
+                if (codigoAtual.trim() !== "" && codigoAtual.length > 2) {
+                    contador[codigoAtual] = (contador[codigoAtual] || 0) + qtd;
+                }
+                codigoAtual = ""; // Limpa para o próximo produto
             }
         }
 
         texto += "\n";
-
-        const codigoCompleto = codigosPagina.join(" ").trim();
-
-        if (codigoCompleto !== "") {
-
-            if (!contador[codigoCompleto]) {
-                contador[codigoCompleto] = 0;
-            }
-
-            contador[codigoCompleto] += quantidadePagina;
-        }
-
         atualizarLoader(Math.round(p / totalPaginas * 100));
     }
 
-    /* ========= PRATELEIRAS ========= */
-
+    /* ========= PRATELEIRAS (MANTIDO) ========= */
     const textoPDF = texto.toUpperCase();
-
     const itensPrat = extrairDadosPrateleiras(textoPDF);
     const resumoPrat = calcularResumoPrateleiras(itensPrat);
 
     /* ========= PRODUTOS ========= */
-
     const itensProd = Object.entries(contador).map(
         ([codigo, quantidade]) => ({
             codigo,
             quantidade
         })
     );
-	pararCronometro();
+
+    pararCronometro();
     finalizarLoader();
 
     /* ========= GERAR PDF ========= */
-
     await gerarPDFUnificado(resumoPrat, itensProd);
 });
 
