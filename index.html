@@ -294,20 +294,68 @@ fileInput.addEventListener("change", async function(){
     const textoPDF = texto.toUpperCase();
     const itensPrat = extrairDadosPrateleiras(textoPDF);
     const resumoPrat = calcularResumoPrateleiras(itensPrat);
+			 /* =====================================================
+			========= IDENTIFICAÇÃO DA PLATAFORMA (NOVO)
+			===================================================== */
+			let plataforma = "DESCONHECIDA";
+
+			if (textoPDF.includes("TIK TOK SHOP") || textoPDF.includes("IMILE")) {
+				plataforma = "TIKTOK";
+			} else if (textoPDF.includes("SHOPEE") || textoPDF.includes("SPX")) {
+				plataforma = "SHOPEE";
+			}
+
+			console.log("Plataforma Detectada: " + plataforma);
 
     /* ========= PRODUTOS ========= */
-    const itensProd = Object.entries(contador).map(
+    const itensProdRaw = Object.entries(contador).map(
         ([codigo, quantidade]) => ({
             codigo,
             quantidade
         })
     );
 
+    // 1. Organiza inicialmente do maior para o menor por quantidade global pura
+    itensProdRaw.sort((a, b) => b.quantidade - a.quantidade);
+
+    // 2. Nova Regra de Agrupamento por proximidade de código ("Família" de produto)
+    const itensProdOrdenados = [];
+    const visitados = new Set();
+    
+    // Função auxiliar para pegar a primeira palavra (ex: "Lambo" de "Lambo Azul")
+    const obterRaizCodigo = (str) => str.trim().split(/[\s\-_]+/)[0].toLowerCase();
+
+    for (let i = 0; i < itensProdRaw.length; i++) {
+        if (visitados.has(i)) continue;
+
+        const itemPrincipal = itensProdRaw[i];
+        itensProdOrdenados.push(itemPrincipal);
+        visitados.add(i);
+
+        const raizPrincipal = obterRaizCodigo(itemPrincipal.codigo);
+
+        // Varre o resto da lista procurando códigos parecidos/com mesma raiz
+        for (let j = i + 1; j < itensProdRaw.length; j++) {
+            if (visitados.has(j)) continue;
+
+            const outroItem = itensProdRaw[j];
+            const outraRaiz = obterRaizCodigo(outroItem.codigo);
+
+            // Se pertencerem à mesma família (primeira palavra igual) e tiver tamanho válido
+            if (raizPrincipal === outraRaiz && raizPrincipal.length >= 2) {
+                itensProdOrdenados.push(outroItem);
+                visitados.add(j); // Marca como organizado para não repetir depois
+            }
+        }
+    }
+
     pararCronometro();
     finalizarLoader();
 
     /* ========= GERAR PDF ========= */
-    await gerarPDFUnificado(resumoPrat, itensProd);
+    // Enviamos a lista final agrupada inteligentemente para a montagem do PDF
+    await gerarPDFUnificado(resumoPrat, itensProdOrdenados);
+	
 });
 
 /* =====================================================
@@ -450,11 +498,12 @@ function calcularResumo(itens) {
 		if (r.codigoC===0) embalar[g].C1+=r.prateleiras/3;
     }
 
-    resumo.__TOTAL_MAOS__=totalMaos;
-	resumo.__TOTAL_MAD__=totalMadeiras;
-    resumo.__PINTURA__=pintura;
-    resumo.__EMBALAR__=embalar;
-    return resumo;
+    const resumoFinal = Object.assign({}, resumo);
+    resumoFinal.__TOTAL_MAOS__=totalMaos;
+	resumoFinal.__TOTAL_MAD__=totalMadeiras;
+    resumoFinal.__PINTURA__=pintura;
+    resumoFinal.__EMBALAR__=embalar;
+    return resumoFinal;
 }
 
 /* =========================
@@ -477,23 +526,24 @@ async function gerarPDFPrateleiras(resumo, doc) {
     const pintura = resumo.__PINTURA__;
     const totaisEmbalar = resumo.__EMBALAR__;
 
-    delete resumo.__TOTAL_MAOS__;
-    delete resumo.__TOTAL_MAD__;
-    delete resumo.__PINTURA__;
-    delete resumo.__EMBALAR__;
+    const copiaResumo = Object.assign({}, resumo);
+    delete copiaResumo.__TOTAL_MAOS__;
+    delete copiaResumo.__TOTAL_MAD__;
+    delete copiaResumo.__PINTURA__;
+    delete copiaResumo.__EMBALAR__;
 
     /* =========================
-       PÁGINA 1 – RESUMO DETALHADO
-    ========================== */
+        PÁGINA 1 – RESUMO DETALHADO
+     ========================== */
     doc.setFontSize(11);
-    doc.text("Resumo de Produção", 52.5, 8, { align: "center" });
+    doc.text("Resumo de Production", 52.5, 8, { align: "center" });
 
     doc.setFontSize(7);
     doc.text(`Gerado em: ${new Date().toLocaleString()}`, 52.5, 12, { align: "center" });
 
     const linhas = [];
-    for (const k in resumo) {
-        const r = resumo[k];
+    for (const k in copiaResumo) {
+        const r = copiaResumo[k];
         linhas.push([
             r.codigo,
             r.quantidadeVendida,
@@ -564,8 +614,8 @@ async function gerarPDFPrateleiras(resumo, doc) {
     });
 
     /* =========================
-       PÁGINA 2 – EMBALAR
-    ========================== */
+        PÁGINA 2 – EMBALAR
+     ========================== */
     doc.addPage();
 
     doc.setFontSize(11);
@@ -580,7 +630,7 @@ async function gerarPDFPrateleiras(resumo, doc) {
         const [tamanho, cor] = key.split("_");
 
         if (item.codigoC === 0) {
-            totalEmbalar3Andar += item.C1; // 🔥 corrigido (antes sobrescrevia)
+            totalEmbalar3Andar += item.C1; 
         } else {
             gruposLinhas.push([
                 `${tamanho} ${cor}`,
@@ -609,8 +659,8 @@ async function gerarPDFPrateleiras(resumo, doc) {
     });
 
     /* =========================
-       MODELO FURAR
-    ========================== */
+        MODELO FURAR
+     ========================== */
 
     doc.autoTable({
         head: [["Modelo", "Furar", "Embalar"]],
@@ -633,8 +683,8 @@ async function gerarPDFPrateleiras(resumo, doc) {
     });
 
     /* =========================
-       PÁGINA 3 – PINTURA
-    ========================== */
+        PÁGINA 3 – PINTURA
+     ========================== */
     doc.addPage();
 
     doc.setFontSize(11);
@@ -661,14 +711,6 @@ async function gerarPDFPrateleiras(resumo, doc) {
 
         margin: { left: 3, right: 3 }
     });
-
-    /* =========================
-       RESTAURA EXTRAS
-    ========================== */
-    resumo.__TOTAL_MAOS__ = totalMaos;
-    resumo.__TOTAL_MAD__ = totalMadeiras;
-    resumo.__PINTURA__ = pintura;
-    resumo.__EMBALAR__ = totaisEmbalar;
 }
 
 /* ================= GERAR PDF ================= */
