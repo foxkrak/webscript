@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Leitor de JSON - Multi-Arquivos (Colunas Dinâmicas + Prateleiras no Fim)</title>
+
+<!-- Bibliotecas para geração de PDF (jsPDF e AutoTable) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+<style>
+:root {
+  --primary: #4caf50;
+  --primary-dark: #3e8e41;
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --text: #333;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+
+.container {
+  background: var(--card);
+  width: 100%;
+  max-width: 500px;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.file-input {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 25px;
+}
+
+.file-input input[type="file"] {
+  padding: 10px;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 0.3s, background 0.3s;
+}
+
+.file-input input[type="file"]:hover {
+  border-color: var(--primary);
+  background: #f9fff9;
+}
+
+#loader {
+  display: none;
+  margin-top: 20px;
+}
+
+#loader p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  text-align: center;
+}
+
+#loaderPercent { color: var(--primary); }
+
+#loaderBarBg {
+  width: 100%;
+  height: 16px;
+  background: #e0e0e0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+#loaderBar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+  border-radius: 10px;
+  transition: width 0.3s ease;
+}
+</style>
+</head>
+
+<body>
+<div id="viewer" style="display:none;width:100%;height:100vh;">
+  <div style="position:fixed; top:35px; left:10px; z-index:1000;">
+    <button onclick="voltarInicio()" style="padding:8px 14px; font-size:14px; cursor:pointer;">
+      ← Voltar
+    </button>
+  </div>
+  <iframe id="pdfFrame" style="width:100%; height:100%; border:none;"></iframe>
+</div>
+
+<div class="container">
+  <h2>📦 Leitor de JSON (Prateleiras no Fim)</h2>
+  
+  <div id="cronometro" style="margin-top:10px;text-align:center;font-size:14px;">
+    ⏱ Tempo de leitura: <strong id="tempo">0.000s</strong>
+  </div><br/>
+
+  <div class="file-input">
+    <input type="file" id="fileInput" accept=".json" multiple>
+  </div>
+
+  <div id="loader">
+    <p>Lendo JSONs <span id="fileCount"></span>: <strong><span id="loaderPercent">0%</span></strong></p>
+    <div id="loaderBarBg">
+      <div id="loaderBar"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================
+   LOADER ÚNICO E CRONÔMETRO
+===================================================== */
+function iniciarLoader(){ document.getElementById("loader").style.display="block"; atualizarLoader(0); }
+function atualizarLoader(p){ document.getElementById("loaderBar").style.width=p+"%"; document.getElementById("loaderPercent").innerText=p+"%"; }
+function finalizarLoader(){ atualizarLoader(100); setTimeout(()=>document.getElementById("loader").style.display="none",500); }
+
+let inicioTempo = 0;
+let timerInterval = null;
+
+function iniciarCronometro(){
+    inicioTempo = performance.now();
+    timerInterval = setInterval(() => {
+        const agora = performance.now();
+        const tempo = ((agora - inicioTempo) / 1000).toFixed(3);
+        document.getElementById("tempo").innerText = tempo + "s";
+    }, 50);
+}
+
+function pararCronometro(){
+    clearInterval(timerInterval);
+    const fim = performance.now();
+    const tempoTotal = ((fim - inicioTempo) / 1000).toFixed(3);
+    document.getElementById("tempo").innerText = tempoTotal + "s";
+}
+
+function mostrarPDF(url){
+  document.querySelector(".container").style.display = "none";
+  const viewer = document.getElementById("viewer");
+  const frame = document.getElementById("pdfFrame");
+  frame.src = url;
+  viewer.style.display = "block";
+  document.body.style.overflow = "hidden";
+}
+
+function voltarInicio(){
+  document.getElementById("viewer").style.display = "none";
+  document.querySelector(".container").style.display = "block";
+  document.getElementById("pdfFrame").src = "";
+  document.body.style.overflow = "auto";
+}
+
+/* =====================================================
+   LEITURA NATIVA DO OBJETO JSON
+===================================================== */
+const codigosPrateleiras = [
+    "NATURAL C1","NATURAL C2","NATURAL C4","NATURAL C6",
+    "ENVELHECIDA C1","ENVELHECIDA C2","ENVELHECIDA C4","ENVELHECIDA C6",
+    "PRETA C1","PRETA C2","PRETA C4","PRETA C6",
+    "60CM NAT C1","60CM NAT C2","60CM NAT C4","60CM NAT C6",
+    "60CM ENV C1","60CM ENV C2","60CM ENV C4","60CM ENV C6",
+    "60CM PRE C1","60CM PRE C2","60CM PRE C4","60CM PRE C6",
+    "3 ANDAR"
+];
+
+// Função auxiliar para checar se o código é de uma prateleira
+function isPrateleira(codigo) {
+    const codUpper = codigo.toUpperCase();
+    return codigosPrateleiras.some(p => codUpper.includes(p));
+}
+
+document.getElementById("fileInput").addEventListener("change", async function(){
+    const files = Array.from(this.files);
+    if (!files || files.length === 0) return;
+
+    iniciarLoader();
+    iniciarCronometro();
+
+    if (files.length > 1) {
+        document.getElementById("fileCount").innerText = `(${files.length} arquivos)`;
+    } else {
+        document.getElementById("fileCount").innerText = "";
+    }
+
+    let contadorGlobal = {};
+    let setQuantidadesUnicas = new Set();
+    let itensPrateleiras = []; 
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        try {
+            const text = await file.text();
+            const jsonData = JSON.parse(text);
+            
+            const notasFiscais = Array.isArray(jsonData) ? jsonData : [jsonData];
+
+            notasFiscais.forEach(nota => {
+                const itens = nota.Itens || [];
+
+                itens.forEach(item => {
+                    const codigoOriginal = (item.Codigo || "").trim().toUpperCase();
+                    const quantidade = Number(item.Quantidade) || 0;
+
+                    // 1. ADICIONA NO CONTADOR GLOBAL
+                    if (codigoOriginal !== "" && quantidade > 0) {
+                        if (!contadorGlobal[codigoOriginal]) {
+                            contadorGlobal[codigoOriginal] = { totalPieces: 0, distribuicao: {} };
+                        }
+                        
+                        contadorGlobal[codigoOriginal].totalPieces += quantidade;
+                        
+                        contadorGlobal[codigoOriginal].distribuicao[quantidade] = 
+                            (contadorGlobal[codigoOriginal].distribuicao[quantidade] || 0) + 1;
+                        
+                        setQuantidadesUnicas.add(quantidade);
+                    }
+
+                    // 2. VERIFICA SE É PRATELEIRA PARA EXTRAÇÃO DE DADOS
+                    let codPratMatch = "";
+                    for (let cod of codigosPrateleiras) {
+                        if (codigoOriginal.includes(cod)) {
+                            codPratMatch = cod;
+                            break;
+                        }
+                    }
+
+                    if (codPratMatch) {
+                        const tamanho = codPratMatch === "3 ANDAR" ? 30 : codPratMatch.includes("60") ? 60 : 40;
+                        let cor = "NATURAL";
+                        if (codPratMatch.includes("PRETA") || codPratMatch.includes("PRE")) cor = "PRETA";
+                        if (codPratMatch.includes("ENV")) cor = "ENVELHECIDA";
+
+                        let codigoC = 0;
+                        if (codPratMatch !== "3 ANDAR") {
+                            const rC = codPratMatch.match(/C\/?([1246])/);
+                            if(rC) codigoC = parseInt(rC[1]);
+                        }
+
+                        itensPrateleiras.push({
+                            codigo: codPratMatch,
+                            tamanho: tamanho,
+                            cor: cor,
+                            codigoC: codigoC,
+                            quantidade: quantidade, 
+                            etiqueta: 1
+                        });
+                    }
+                });
+            });
+
+        } catch (error) {
+            console.error("Erro ao processar o arquivo " + file.name, error);
+        }
+
+        atualizarLoader(Math.round(((i + 1) / files.length) * 100));
+    }
+
+    /* ========= PRATELEIRAS (PROCESSAMENTO FINAL) ========= */
+    const resumoPrat = calcularResumo(itensPrateleiras);
+
+    /* ========= PRODUTOS ========= */
+    const itensProdRaw = Object.entries(contadorGlobal).map(
+        ([codigo, info]) => ({ 
+            codigo, 
+            totalPieces: info.totalPieces, 
+            distribuicao: info.distribuicao 
+        })
+    );
+
+    itensProdRaw.sort((a, b) => b.totalPieces - a.totalPieces);
+
+    // Separa os itens em "Outros" e "Prateleiras" para garantir as prateleiras no fim
+    const listaOutros = [];
+    const listaPrateleiras = [];
+
+    for (const item of itensProdRaw) {
+        if (isPrateleira(item.codigo)) {
+            listaPrateleiras.push(item);
+        } else {
+            listaOutros.push(item);
+        }
+    }
+
+    // Função de agrupamento por raiz para organizar a lista
+    const agruparPorRaiz = (lista) => {
+        const ordenados = [];
+        const visitados = new Set();
+        const obterRaizCodigo = (str) => str.trim().split(/[\s\-_]+/)[0].toLowerCase();
+
+        for (let i = 0; i < lista.length; i++) {
+            if (visitados.has(i)) continue;
+
+            const itemPrincipal = lista[i];
+            ordenados.push(itemPrincipal);
+            visitados.add(i);
+
+            const raizPrincipal = obterRaizCodigo(itemPrincipal.codigo);
+
+            for (let j = i + 1; j < lista.length; j++) {
+                if (visitados.has(j)) continue;
+
+                const outroItem = lista[j];
+                const outraRaiz = obterRaizCodigo(outroItem.codigo);
+
+                if (raizPrincipal === outraRaiz && raizPrincipal.length >= 2) {
+                    ordenados.push(outroItem);
+                    visitados.add(j);
+                }
+            }
+        }
+        return ordenados;
+    };
+
+    // Junta as listas organizadas, garantindo Prateleiras no final
+    const itensProdOrdenados = [...agruparPorRaiz(listaOutros), ...agruparPorRaiz(listaPrateleiras)];
+
+    pararCronometro();
+    finalizarLoader();
+
+    /* ========= GERAR PDF FINAL UNIFICADO ========= */
+    const colunasDeQuantidades = Array.from(setQuantidadesUnicas).sort((a, b) => a - b);
+    await gerarPDFUnificado(resumoPrat, itensProdOrdenados, colunasDeQuantidades);
+});
+
+/* =====================================================
+   CÁLCULO DE PRATELEIRAS
+===================================================== */
+function calcularResumo(itens) {
+    const resumo = {};
+    let totalMaos = 0;
+    let totalMadeiras = 0;
+
+    const pintura = {
+        PRETA_40: 0, PRETA_60: 0,
+        ENVELHECIDA_40: 0, ENVELHECIDA_60: 0,
+        NATURAL_40: 0, NATURAL_60: 0,
+        ANDAR_3: 0
+    };
+
+    for (const i of itens) {
+        const k = `${i.tamanho}_${i.cor}_C${i.codigoC}`;
+        if (!resumo[k]) {
+            resumo[k] = {
+                codigo: i.codigo,
+                tamanho: i.tamanho,
+                cor: i.cor,
+                codigoC: i.codigoC,
+                quantidadeVendida: 0,
+                prateleiras: 0,
+                kitsBase: 0,
+                madeiras: 0,
+                maosFrancesas: 0
+            };
+        }
+
+        resumo[k].quantidadeVendida += i.quantidade;
+
+        const qtd = i.quantidade;
+        let p=0,kb=0,m=0,ma=0;
+
+        if (i.codigoC===0){p=3*qtd;m=3*qtd;ma=0*qtd;}
+        if (i.codigoC===1){p=1*qtd;m=1*qtd;ma=2*qtd;}
+        if (i.codigoC===2){p=2*qtd;kb=1*qtd;m=2*qtd;ma=4*qtd;}
+        if (i.codigoC===4){p=4*qtd;kb=2*qtd;m=4*qtd;ma=8*qtd;}
+        if (i.codigoC===6){p=6*qtd;kb=3*qtd;m=6*qtd;ma=12*qtd;}
+
+        if (i.cor==="PRETA") pintura[`PRETA_${i.tamanho}`]+=m;
+        if (i.codigoC===0) pintura.ANDAR_3+=m;
+        if (i.cor==="NATURAL") pintura[`NATURAL_${i.tamanho}`]+=m;
+        if (i.cor==="ENVELHECIDA") pintura[`ENVELHECIDA_${i.tamanho}`]+=m;
+
+        resumo[k].prateleiras+=p;
+        resumo[k].kitsBase+=kb;
+        resumo[k].madeiras+=m;
+        resumo[k].maosFrancesas+=ma;
+        totalMaos+=ma;
+        totalMadeiras+=m;
+    }
+
+    const embalar = {};
+    for (const k in resumo) {
+        const r = resumo[k];
+        const g = r.codigoC===0 ? "3 ANDAR" : `${r.tamanho}_${r.cor}`;
+        if (!embalar[g]) embalar[g]={total:0,C1:0,codigoC:0};
+        embalar[g].total+=r.kitsBase;
+        embalar[g].codigoC = r.codigoC;
+        if (r.codigoC===1) embalar[g].C1+=r.prateleiras;
+        if (r.codigoC===0) embalar[g].C1+=r.prateleiras/3;
+    }
+
+    const resumoFinal = Object.assign({}, resumo);
+    resumoFinal.__TOTAL_MAOS__=totalMaos;
+    resumoFinal.__TOTAL_MAD__=totalMadeiras;
+    resumoFinal.__PINTURA__=pintura;
+    resumoFinal.__EMBALAR__=embalar;
+    return resumoFinal;
+}
+
+/* =====================================================
+   GERAÇÃO DE PDF
+===================================================== */
+async function gerarPDFPrateleiras(resumo, doc) {
+    const totalMaos = resumo.__TOTAL_MAOS__;
+    const totalMadeiras = resumo.__TOTAL_MAD__;
+    const pintura = resumo.__PINTURA__;
+    const totaisEmbalar = resumo.__EMBALAR__;
+
+    const copiaResumo = Object.assign({}, resumo);
+    delete copiaResumo.__TOTAL_MAOS__;
+    delete copiaResumo.__TOTAL_MAD__;
+    delete copiaResumo.__PINTURA__;
+    delete copiaResumo.__EMBALAR__;
+
+    doc.setFontSize(11);
+    doc.text("Resumo de Produção", 52.5, 8, { align: "center" });
+
+    doc.setFontSize(7);
+    doc.text(`Gerado em: ${new Date().toLocaleString()}`, 52.5, 12, { align: "center" });
+
+    const linhas = [];
+    for (const k in copiaResumo) {
+        const r = copiaResumo[k];
+        linhas.push([
+            r.codigo,
+            r.quantidadeVendida,
+            r.prateleiras,
+            r.kitsBase,
+            r.madeiras,
+            r.maosFrancesas
+        ]);
+    }
+
+    doc.autoTable({
+        head: [["Modelo", "Vend.", "Prat.", "C/2", "Mad.", "Mãos"]],
+        body: linhas,
+        startY: 15,
+        styles: { fontSize: 7, cellPadding: 0.8, valign: "middle", halign: "left" },
+        columnStyles: {
+            0: { halign: "left" }, 1: { halign: "center" }, 2: { halign: "center" },
+            3: { halign: "center" }, 4: { halign: "center" }, 5: { halign: "center" }
+        },
+        headStyles: { fillColor: [40, 40, 40], textColor: 255, halign: "center" },
+        margin: { left: 3, right: 3 }
+    });
+
+    doc.autoTable({
+        head: [["Métricas", "Total"]],
+        body: [
+            ["TÁBOAS 40CM", pintura.PRETA_40 + pintura.ENVELHECIDA_40 + pintura.NATURAL_40],
+            ["TÁBOAS 60CM", pintura.ENVELHECIDA_60 + pintura.NATURAL_60 + pintura.PRETA_60],
+            ["TÁBOAS 3 ANDAR", pintura.ANDAR_3],
+            ["TOTAL DE TÁBOAS", totalMadeiras],
+            ["TOTAL MÃOS FRANCESAS", totalMaos]
+        ],
+        startY: doc.lastAutoTable.finalY + 2,
+        styles: { fontSize: 7, cellPadding: 1, halign: "left" },
+        columnStyles: { 0: { halign: "left" }, 1: { halign: "center" } },
+        headStyles: { fillColor: [60, 60, 60], textColor: 255, halign: "center" },
+        margin: { left: 3, right: 3 }
+    });
+
+    doc.addPage();
+    doc.setFontSize(11);
+    doc.text("Total a Embalar", 52.5, 12, { align: "center" });
+
+    const gruposLinhas = [];
+    let totalEmbalar3Andar = 0;
+
+    Object.keys(totaisEmbalar).forEach(key => {
+        const item = totaisEmbalar[key];
+        const [tamanho, cor] = key.split("_");
+
+        if (item.codigoC === 0) {
+            totalEmbalar3Andar += item.C1; 
+        } else {
+            gruposLinhas.push([ `${tamanho} ${cor}`, item.total, item.C1 ]);
+        }
+    });
+
+    doc.autoTable({
+        head: [["Modelo", "C/2", "C/1"]],
+        body: gruposLinhas,
+        startY: 14,
+        styles: { fontSize: 12, cellPadding: 1.2, halign: "left" },
+        columnStyles: { 0: { halign: "left" }, 1: { halign: "center" }, 2: { halign: "center" } },
+        headStyles: { fillColor: [40, 40, 40], textColor: 255, halign: "center" },
+        margin: { left: 3, right: 3 }
+    });
+
+    doc.autoTable({
+        head: [["Modelo", "Furar", "Embalar"]],
+        body: [ ["3 ANDAR", pintura.ANDAR_3, totalEmbalar3Andar] ],
+        startY: doc.lastAutoTable.finalY + 3,
+        styles: { fontSize: 12, cellPadding: 1.2, halign: "left" },
+        columnStyles: { 0: { halign: "left" }, 1: { halign: "center" }, 2: { halign: "center" } },
+        headStyles: { fillColor: [40, 40, 40], textColor: 255, halign: "center" },
+        margin: { left: 3, right: 3 }
+    });
+
+    doc.addPage();
+    doc.setFontSize(11);
+    doc.text("Resumo de Pintura", 52.5, 12, { align: "center" });
+
+    doc.autoTable({
+        head: [["Modelo", "Tábuas"]],
+        body: [
+            ["40 PRETA", pintura.PRETA_40],
+            ["60 PRETA", pintura.PRETA_60],
+            ["40 ENVELHECIDA", pintura.ENVELHECIDA_40],
+            ["60 ENVELHECIDA", pintura.ENVELHECIDA_60]
+        ],
+        startY: 14,
+        styles: { fontSize: 12, cellPadding: 1.4, halign: "left" },
+        columnStyles: { 0: { halign: "left" }, 1: { halign: "center" } },
+        headStyles: { fillColor: [40, 40, 40], textColor: 255, halign: "center" },
+        margin: { left: 3, right: 3 }
+    });
+}
+
+async function gerarPDFProdutos(itens, colsQtd, doc) {
+  const PAGE_W = 105;
+  const MARGIN = 3;
+
+  doc.setFontSize(12);
+  doc.text("Resumo de Produtos", PAGE_W / 2, MARGIN + 3, { align: "center" });
+
+  const cabecalho = ["Código - SKU"];
+  colsQtd.forEach(q => cabecalho.push(`C/${q}`));
+  cabecalho.push("Total Peças");
+
+  const linhas = itens.map(i => {
+      const row = [i.codigo];
+      colsQtd.forEach(q => {
+          row.push(i.distribuicao[q] ? i.distribuicao[q] : "-");
+      });
+      row.push(i.totalPieces);
+      return row;
+  });
+
+  const colStyles = { 0: { halign: "left" } };
+  for(let c = 1; c <= colsQtd.length + 1; c++) {
+      colStyles[c] = { halign: "center" };
+  }
+
+  doc.autoTable({
+    startY: MARGIN + 7,
+    margin: { top: MARGIN, left: MARGIN, right: MARGIN, bottom: MARGIN },
+    tableWidth: PAGE_W - MARGIN * 2,
+    head: [cabecalho],
+    body: linhas,
+    rowPageBreak: "avoid",
+    styles: { fontSize: 8, valign: "middle", cellPadding: 1.2, overflow: "linebreak" },
+    headStyles: { fillColor: [40, 40, 40], textColor: 255, fontSize: 8, halign: "center" },
+    columnStyles: colStyles
+  });
+}
+
+async function gerarPDFUnificado(resumoPrateleiras, itensProdutos, colunasDeQuantidades){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:"portrait",unit:"mm",format:[105,148]});
+
+  await gerarPDFPrateleiras(resumoPrateleiras, doc);
+
+  doc.addPage();
+  await gerarPDFProdutos(itensProdutos, colunasDeQuantidades, doc);
+
+  const blob = doc.output("blob");
+  const url = URL.createObjectURL(blob);
+
+  mostrarPDF(url);
+}
+</script>
+
+</body>
+</html>
