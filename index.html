@@ -46,6 +46,31 @@ h2 {
   font-weight: 600;
 }
 
+/* Estilos dos Novos Botões */
+.btn-group {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 2px solid var(--primary);
+  color: var(--primary);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-outline:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
 .file-input {
   display: flex;
   justify-content: center;
@@ -134,7 +159,14 @@ h2 {
 </div>
 
 <div class="container">
-  <h2>📄 Leitura de PDF - v4 (Multi-Arquivos)</h2>
+  <h2>📄 Leitura de PDF - v4.1</h2>
+  
+  <!-- Novos Botões de Versão -->
+  <div class="btn-group">
+    <button class="btn-outline" onclick="alterarVersao('old')">⏳ Versão Old</button>
+    <button class="btn-outline" onclick="alterarVersao('json')">🧩 Versão JSON</button>
+  </div>
+
   <div id="cronometro" style="margin-top:10px;text-align:center;font-size:14px;">
 ⏱ Tempo de leitura: <strong id="tempo">0.000s</strong>
 </div><br/>
@@ -157,6 +189,20 @@ h2 {
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc =
  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+/* =====================================================
+   AÇÕES DOS BOTÕES DE VERSÃO
+===================================================== */
+function alterarVersao(versao) {
+  if (versao === 'old') {
+    // Redireciona para a versão Old
+    window.location.href = "/indexOld.html";
+    
+  } else if (versao === 'json') {
+    // Redireciona para a versão JSON (coloque o link correto aqui depois)
+    window.location.href = "/indexJson.html"; 
+  }
+}
 
 /* =====================================================
    LOADER ÚNICO E CRONÔMETRO
@@ -422,7 +468,7 @@ function extrairDados(texto) {
         }
         
         let quantidade = 1;
-        const q = trecho.match(/(?:^|\s)(\d+)\s*$/);
+        const q = trecho.match(/(?:^|\\s)(\\d+)\\s*$/);
         if (q) quantidade = parseInt(q[1]);
 
         itens.push({ codigo, tamanho, cor, codigoC, quantidade, etiqueta: 1 });
