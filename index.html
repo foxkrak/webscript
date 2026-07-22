@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Leitor Unificado</title>
+<title>Leitor Unificado - Corrigido</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
@@ -46,7 +46,6 @@ h2 {
   font-weight: 600;
 }
 
-/* Estilos dos Novos Botões */
 .btn-group {
   display: flex;
   justify-content: center;
@@ -159,9 +158,8 @@ h2 {
 </div>
 
 <div class="container">
-  <h2>📄 Leitura de PDF - v4.1.1</h2>
+  <h2>📄 Leitura de PDF - v4.1.2</h2>
   
-  <!-- Novos Botões de Versão -->
   <div class="btn-group">
     <button class="btn-outline" onclick="alterarVersao('old')">⏳ Versão Old</button>
     <button class="btn-outline" onclick="alterarVersao('json')">🧩 Versão JSON</button>
@@ -195,11 +193,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 ===================================================== */
 function alterarVersao(versao) {
   if (versao === 'old') {
-    // Redireciona para a versão Old
     window.location.href = "/webscript/indexOld.html";
-    
   } else if (versao === 'json') {
-    // Redireciona para a versão JSON (coloque o link correto aqui depois)
     window.location.href = "/webscript/indexJson.html"; 
   }
 }
@@ -304,7 +299,7 @@ fileInput.addEventListener("change", async function(){
 
                     if (!t) continue;
                     
-                    /* ========= TEXTO PARA PRATELEIRAS ========= */
+                    /* ========= TEXTO GERAL ========= */
                     textoLocal += t + " ";
 
                     /* ========= LÓGICA DE BUSCA DE PRODUTOS ========= */
@@ -328,7 +323,6 @@ fileInput.addEventListener("change", async function(){
                 textoLocal += "\n";
             }
 
-            // Atualiza a barra de progresso global compartilhada
             paginasLidas += (maxPage - p + 1);
             atualizarLoader(Math.round((paginasLidas / totalPaginasGlobais) * 100));
         }
@@ -350,12 +344,8 @@ fileInput.addEventListener("change", async function(){
         }
     }
 
-    /* ========= PRATELEIRAS (PROCESSAMENTO FINAL) ========= */
-    const textoPDF = textoGlobal.toUpperCase();
-    const itensPrat = extrairDadosPrateleiras(textoPDF);
-    const resumoPrat = calcularResumoPrateleiras(itensPrat);
-
     /* ========= IDENTIFICAÇÃO DA PLATAFORMA ========= */
+    const textoPDF = textoGlobal.toUpperCase();
     let plataforma = "DESCONHECIDA";
 
     if (textoPDF.includes("TIK TOK SHOP") || textoPDF.includes("IMILE")) {
@@ -365,6 +355,11 @@ fileInput.addEventListener("change", async function(){
     }
 
     console.log("Plataforma Detectada: " + plataforma);
+
+    /* ========= PRATELEIRAS (PROCESSAMENTO FINAL CORRIGIDO) ========= */
+    // Agora enviamos o contadorGlobal com as quantidades corretas ao invés do texto cego
+    const itensPrat = extrairDadosPrateleiras(contadorGlobal);
+    const resumoPrat = calcularResumoPrateleiras(itensPrat);
 
     /* ========= PRODUTOS ========= */
     const itensProdRaw = Object.entries(contadorGlobal).map(
@@ -412,10 +407,10 @@ fileInput.addEventListener("change", async function(){
 });
 
 /* =====================================================
-   ========== CÓDIGO PRATELEIRAS (ORIGINAL)
+   ========== CÓDIGO PRATELEIRAS CORRIGIDO
 ===================================================== */
-function extrairDadosPrateleiras(texto){
-  return extrairDados(texto);
+function extrairDadosPrateleiras(contador){
+  return extrairDados(contador);
 }
 function calcularResumoPrateleiras(itens){
   return calcularResumo(itens);
@@ -424,7 +419,7 @@ function calcularResumoPrateleiras(itens){
 /* =========================
    EXTRAÇÃO
 ========================= */
-function extrairDados(texto) {
+function extrairDados(contador) {
     const codigos = [
         "NATURAL C1","NATURAL C2","NATURAL C4","NATURAL C6",
         "ENVELHECIDA C1","ENVELHECIDA C2","ENVELHECIDA C4","ENVELHECIDA C6",
@@ -435,43 +430,46 @@ function extrairDados(texto) {
         "3 ANDAR"
     ];
 
-    const escapeRegex = str => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Ordena do maior para o menor
+    codigos.sort((a, b) => b.length - a.length);
 
-    const regexCodigos = codigos
-        .sort((a, b) => b.length - a.length)
-        .map(escapeRegex)
-        .join("|");
-
-    const regex = new RegExp(
-    `(?:^|\\s)(${regexCodigos})(?=\\s|$)([\\s\\S]*?)(?=(?:^|\\s)(?:${regexCodigos})(?=\\s|$)|\\n|$)`,
-    "g"
-    );
-
-    const linhaNormalizada = texto.replace(/\//g, "");
     const itens = [];
 
-    let match;
+    // Lê diretamente dos itens já quantificados nas colunas do PDF
+    for (const [skuBruto, quantidade] of Object.entries(contador)) {
+        const linhaNormalizada = skuBruto.toUpperCase().replace(/\//g, "");
 
-    while ((match = regex.exec(linhaNormalizada)) !== null) {
-        const cod = match[1];
-        const trecho = match[0];
-        const tamanho = cod === "3 ANDAR" ? 30 : cod.includes("60") ? 60 : 40;
-        const codigo = cod;
-
-        let cor = "NATURAL";
-        if (cod.includes("PRETA") || cod.includes("PRE")) cor = "PRETA";
-        if (cod.includes("ENV")) cor = "ENVELHECIDA";
-
-        let codigoC = 0;
-        if (cod !== "3 ANDAR") {
-            codigoC = parseInt(cod.match(/C\/?([1246])/)[1]);
+        let codigoEncontrado = null;
+        for (const cod of codigos) {
+            if (linhaNormalizada.includes(cod)) {
+                codigoEncontrado = cod;
+                break; 
+            }
         }
-        
-        let quantidade = 1;
-        const q = trecho.match(/(?:^|\\s)(\\d+)\\s*$/);
-        if (q) quantidade = parseInt(q[1]);
 
-        itens.push({ codigo, tamanho, cor, codigoC, quantidade, etiqueta: 1 });
+        if (codigoEncontrado) {
+            const cod = codigoEncontrado;
+            const tamanho = cod === "3 ANDAR" ? 30 : cod.includes("60") ? 60 : 40;
+            
+            let cor = "NATURAL";
+            if (cod.includes("PRETA") || cod.includes("PRE")) cor = "PRETA";
+            if (cod.includes("ENV")) cor = "ENVELHECIDA";
+
+            let codigoC = 0;
+            if (cod !== "3 ANDAR") {
+                const matchC = cod.match(/C\/?([1246])/);
+                if (matchC) codigoC = parseInt(matchC[1]);
+            }
+            
+            itens.push({ 
+                codigo: cod, 
+                tamanho, 
+                cor, 
+                codigoC, 
+                quantidade: quantidade, // Quantidade exata e real lida das colunas!
+                etiqueta: 1 
+            });
+        }
     }
     return itens;
 }
@@ -510,7 +508,8 @@ function calcularResumo(itens) {
             };
         }
 
-        resumo[k].quantidadeVendida++;
+        // AGORA SIM: Soma a quantidade real extraída da etiqueta
+        resumo[k].quantidadeVendida += i.quantidade;
 
         const qtd = i.quantidade;
         let p=0,kb=0,m=0,ma=0;
